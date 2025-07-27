@@ -1,182 +1,132 @@
 from django.shortcuts import render
-
-# Create your views here.
 from rest_framework.decorators import api_view 
 from rest_framework.response import Response
-from cart.models import Cart
-from orders.models import Order
 from users.models import UserData
-from products.models import Product
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.decorators import authentication_classes, permission_classes
-from rest_framework_simplejwt.authentication import JWTAuthentication
+from django.http import HttpResponse
+from rest_framework import status
+from users.serializers import UserDataSerializer
 
 # Create your views here.
-
-#View All Orders (Admin Only)
-@api_view(['GET'])
-def getAllOrders(request, username):  # take from path
-    try:
-        user = UserData.objects.get(username=username)
-        if user.usertype != 'admin':
-            return Response({"error": "Only admin can view all orders"}, status=403)
-
-        orders = Order.objects.all().values()
-        return Response(orders)
-    except UserData.DoesNotExist:
-        return Response({"error": "Invalid user"}, status=400)
-
-
-# 1. Create Order API
-@api_view(['POST'])
-def createOrder(request):
-    data = request.data
-    try:
-        user = UserData.objects.get(username=data['username'])
-        product = Product.objects.get(pname=data['pname'])
-        quantity = int(data['quantity'])
-        total_price = quantity * product.price
-
-        order = Order.objects.create(
-            user=user,
-            product=product,
-            quantity=quantity,
-            total_price=total_price,
-            status='Pending'
-        )
-        return Response({"message": "Order placed successfully", "order_id": order.id})
-    except UserData.DoesNotExist:
-        return Response({"error": "Invalid user"}, status=400)
-    except Product.DoesNotExist:
-        return Response({"error": "Invalid product"}, status=400)
-
-#View Orders by User
-@api_view(['GET'])
-def getUserOrders(request):
-    username = request.GET.get('username')
-    try:
-        user = UserData.objects.get(username=username)
-        orders = Order.objects.filter(user=user).values()
-        return Response(list(orders))
-    except UserData.DoesNotExist:
-        return Response({"error": "User not found"}, status=400)
-
-#Update Order Status (Admin Only)
-@api_view(['PUT'])
-def updateOrderStatus(request):
-    data = request.data
-    try:
-        admin = UserData.objects.get(username=data['username'])
-        if admin.usertype != 'admin':
-            return Response({"error": "Only admin can update order status"}, status=403)
-
-        order = Order.objects.get(id=data['order_id'])
-        order.status = data['status']
-        order.save()
-        return Response({"message": "Order status updated successfully"})
-    except UserData.DoesNotExist:
-        return Response({"error": "Invalid admin"}, status=400)
-    except Order.DoesNotExist:
-        return Response({"error": "Order not found"}, status=404)
-
-#Cancel Order (User)
-@api_view(['PUT'])
-def cancelOrder(request):
-    data = request.data
-    try:
-        user = UserData.objects.get(username=data['username'])
-        order = Order.objects.get(id=data['order_id'], user=user)
-        if order.status != 'Pending':
-            return Response({"error": "Only pending orders can be cancelled"}, status=403)
-        order.status = 'Cancelled'
-        order.save()
-        return Response({"message": "Order cancelled successfully"})
-    except UserData.DoesNotExist:
-        return Response({"error": "Invalid user"}, status=400)
-    except Order.DoesNotExist:
-        return Response({"error": "Order not found"}, status=404)
+from django.contrib.auth import logout
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from .models import UserData
 
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
-def checkout_carts(request):
-    user = request.user  # Authenticated user
+def login_view(request):
+    username = request.data.get('username')
+    password = request.data.get('password')
 
     try:
-        cart = Cart.objects.get(user=user)
-        items = cart.items.select_related('product').all()
+        user = UserData.objects.get(username=username, password=password)
+    except UserData.DoesNotExist:
+        return Response({'error': 'Invalid credentials'}, status=401)
 
-        if not items:
-            return Response({'message': 'Cart is empty'}, status=400)
+    # Create JWT tokens manually for your custom user model
+    refresh = RefreshToken.for_user(user)
 
-        total_amount = 0
-        for item in items:
-            total_price = item.quantity * item.product.price
-            Order.objects.create(
-                user=user,
-                product=item.product,
-                quantity=item.quantity,
-                total_price=total_price,
-            )
-            total_amount += total_price
+    # Store custom claim like user ID
+    refresh['user_id'] = user.id
+    refresh['username'] = user.username
 
-        items.delete()  # Clear cart after order
-        return Response({'message': 'Checkout successful', 'total': total_amount})
+    return Response({
+        'refresh': str(refresh),
+        'access': str(refresh.access_token),
+    })
 
-    except Cart.DoesNotExist:
-        return Response({'error': 'Cart not found'}, status=404)
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def logoutUser(request):
+    logout(request)
+    return Response({"message": "Logout successful"})
 
+#read all data from userdata table
 @api_view(['GET'])
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
-def get_user_orders(request):
-    user = request.user
-    orders = Order.objects.filter(user=user).values()
-    return Response(list(orders))
+def getAllUsers(request):
+     queryset=UserData.objects.all().values()
+     users=list(queryset)
+     return Response(users)
 
+#get details by username
 @api_view(['GET'])
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
-def get_all_orders(request):
-    user = request.user
-    if user.usertype != 'admin':
-        return Response({"error": "Only admin can view all orders"}, status=403)
+def getUser(request, username):
+    user = UserData.objects.get(username=username)
+    data = {
+        'username': user.username,
+        'password': user.password,
+        'mobno': user.mobno,
+        'email': user.email,
+        'usertype':user.usertype
+    }
+    return Response(data)
 
-    orders = Order.objects.all().values()
-    return Response(list(orders))
+#add user
+@api_view(['POST'])
+def registeruser(request):
+    username = request.data.get('username')
 
-@api_view(['PUT'])
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
-def update_order_status(request):
-    user = request.user
-    if user.usertype != 'admin':
-        return Response({"error": "Only admin can update status"}, status=403)
+    # Check if username already exists
+    if UserData.objects.filter(username=username).exists():
+        return Response({'error': 'Username already taken'})
 
-    order_id = request.data.get('order_id')
-    status_value = request.data.get('status')
+    # Serialize and validate the input
+    serializer = UserDataSerializer(data=request.data)
+    if serializer.is_valid():
+        serializer.save()
+        return Response({'message': 'User registered successfully'})
 
+    # Return validation errors
+    return Response(serializer.errors)
+    
+#login user
+@api_view(['POST'])
+def loginUser(request):
+    username = request.data.get('username')
+    password = request.data.get('password')
     try:
-        order = Order.objects.get(id=order_id)
-        order.status = status_value
-        order.save()
-        return Response({"message": "Order status updated"})
-    except Order.DoesNotExist:
-        return Response({"error": "Order not found"}, status=404)
+        user = UserData.objects.get(username=username, password=password)
+        # Return user type (assuming you have a field `usertype`)
+        return Response({
+            "message": "Login successful",
+            "usertype": user.usertype  # e.g., "admin" or "user"
+        })
+    except UserData.DoesNotExist:
+        return Response({"error": "Invalid credentials"})
 
-@api_view(['PUT'])
-@authentication_classes([JWTAuthentication])
-@permission_classes([IsAuthenticated])
-def cancel_order(request):
-    user = request.user
-    order_id = request.data.get('order_id')
-
+    
+#delete user
+@api_view(['DELETE'])
+def deleteUser(request,userfromclient):
     try:
-        order = Order.objects.get(id=order_id, user=user)
-        if order.status != 'Pending':
-            return Response({"error": "Only pending orders can be cancelled"}, status=403)
-        order.status = 'Cancelled'
-        order.save()
-        return Response({"message": "Order cancelled successfully"})
-    except Order.DoesNotExist:
-        return Response({"error": "Order not found"}, status=404)
+        User=UserData.objects.filter(username=userfromclient)
+        if User.exists():
+            User.delete()
+            return Response({'message':'record deleted'})
+        else:
+            return Response({'message':'record not found'})
+    except Exception as e:
+        return Response({'message':'error occured'})
+
+#update user
+@api_view(['PUT'])
+def updateUser(request):
+    data = request.data
+    username = data.get("username")
+    try:
+        user = UserData.objects.get(username=username)
+        
+        user.email = data.get("email", user.email)
+        user.mobno = data.get("mobno", user.mobno)
+        user.password = data.get("password", user.password)
+        user.usertype = data.get("usertype", user.usertype)
+        
+        user.save()
+        return Response({"message": "User updated successfully"})
+
+    except:
+        return Response({"error": "User not found"})
+

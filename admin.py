@@ -1,7 +1,6 @@
 from django.contrib import admin
 
-from orders.models import Order
+from users.models import UserData
 
 # Register your models here.
-
-admin.site.register(Order)
+admin.site.register(UserData)

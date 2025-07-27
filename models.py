@@ -1,22 +1,21 @@
+# Create your models here.
 from django.db import models
-from users.models import UserData
-from products.models import Product
 
-class Order(models.Model):
-    user = models.ForeignKey(UserData, on_delete=models.CASCADE)
-    product = models.ForeignKey(Product, on_delete=models.CASCADE)
-    quantity = models.PositiveIntegerField()
-    total_price = models.IntegerField()
-    order_date = models.DateTimeField(auto_now_add=True)
-    status = models.CharField(max_length=50, choices=[
-        ('Pending', 'Pending'),
-        ('Shipped', 'Shipped'),
-        ('Delivered', 'Delivered'),
-        ('Cancelled', 'Cancelled')
-    ], default='Pending')
+class UserData(models.Model):
+    USER_TYPE_CHOICES = (
+        ('user', 'User'),
+        ('admin', 'Admin'),
+    )
+
+    id = models.AutoField(primary_key=True)
+    username = models.CharField(max_length=100, unique=True)
+    email = models.EmailField(max_length=100, unique=True)
+    mobno = models.BigIntegerField(unique=True)
+    password = models.CharField(max_length=128)  # Use hashed password later
+    usertype = models.CharField(max_length=10, choices=USER_TYPE_CHOICES, default='user')
 
     def __str__(self):
-        return f"Order #{self.id} by {self.user.name} - {self.product.pname}"
+        return f"{self.username} ({self.usertype})"
 
     class Meta:
-        db_table = "orders"
+        db_table = "userdata"
